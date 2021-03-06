@@ -1,0 +1,546 @@
+---
+title: "Efftects of regulation on Deaths of COVID-19"
+author: "Ruiwen Zheng"
+date: "2021/3/6"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+***Group 8***
+
+***Name: Hang Gao  student ID: 914472012***
+
+***Name: Ruiwen Zheng  student ID: 918971894***
+
+***Name: Tianyi Feng student ID: 918951348***
+
+```{r, warning = FALSE, include = FALSE}
+Sys.setlocale("LC_ALL","English")
+options(tidyverse.quiet = TRUE)
+library("tidyverse", warn.conflicts = FALSE)
+library("ggplot2")
+library("XML")
+library("RJSONIO")
+library("httr")
+library("htmlTable")
+library(dplyr)
+library(knitr)
+library(ggplot2) 
+library(lmerTest)
+library(MatchIt)
+library(table1)
+options (warn = -1)
+```
+
+
+# Introduction
+
+The COVID-19 pandemic, firstly discovered in December 2019, is an ongoing pandemic of coronavirus disease 2019 (COVID-19) caused by severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2). More than totally 2.56 million deaths attributed to COVID-19 makes it one of the deadliest pandemics in history [1]. From 3rd January 2020 on, World Health Organization has been collecting and publishing the data regarding worldwide new cases and new deaths for each single day (https://covid19.who.int/WHO-COVID-19-global-data.csv). 
+
+Based on this data set, here are the trajectories of cumulative cases, cumulative deaths, and mortality rate by country.
+
+```{r, include = FALSE}
+covid = read_csv("https://covid19.who.int/WHO-COVID-19-global-data.csv", )
+covid$case_mortality = covid$Cumulative_deaths/covid$Cumulative_cases
+covid$case_mortality[is.na(covid$case_mortality)] = 0
+```
+
+```{r, echo = FALSE}
+ggplot(data = covid, aes(x = Date_reported, y = Cumulative_cases, group = Country, color = Country)) + 
+  geom_point() + 
+  geom_line() + 
+  xlab("Reported Date")+
+  ylab("Cumulative Cases")+
+  theme(legend.position = "none")
+```
+
+```{r, echo = FALSE}
+ggplot(data = covid, aes(x = Date_reported, y = Cumulative_deaths, group = Country, color = Country)) + 
+  geom_point() + 
+  geom_line() + 
+  xlab("Reported Date")+
+  ylab("Cumulative Deaths")+
+  theme(legend.position = "none")
+```
+
+```{r, echo = FALSE, warning = TRUE}
+ggplot(data = covid, aes(x = Date_reported, y = Cumulative_deaths/Cumulative_cases, group = Country, color = Country)) + 
+  geom_point() + 
+  geom_line() + 
+  xlab("Reported Date")+
+  ylab("Mortality Rate")+
+  theme(legend.position = "none")
+```
+
+
+In both of the first two figures, the noticeable pink curve stands for the United States of America (USA), which means USA currently has a higher cumulative cases and deaths than any country around the world. This phenomenon motivates this report to focus on the pandemic in USA and a question of interest is thus proposed,
+
+* Is there any regulation that could cause the reduction of and deaths number in USA?
+
+Due to the limited number of variables in the WHO COVID-19 data and the specific region, we would introduce additional data sets into this report. In the next section, we will talk about the sources of these variables and generate summary statistics about them for a deeper understanding.
+
+# Data
+
+Based on Lakshmi's research[2], we have selected following variables to form our new data set:
+
+```{r, echo = FALSE}
+ProjectData = read.csv("Project_Data.csv")
+```
+
+## Response Variable--Deaths
+
+Working as the response variable, **Deaths** includes daily deaths and cumulative deaths. The data source is the "Latest Map and Case Count" of New York Times (https://www.nytimes.com/interactive/2020/us/coronavirus-us-cases.html) which updates the pandemic data by state in USA for every day. With web scratching technique, we could obtain the latest data about deaths by state and thus here is the time range,
+
+```{r, echo = FALSE}
+nyt = htmlParse(GET("https://www.nytimes.com/interactive/2020/us/coronavirus-us-cases.html?action=click&module=Top%20Stories&pgtype=Homepage"))
+
+nyt_json = xpathSApply(nyt, "//*[contains(./text(), 'USA.json')]", xmlValue)
+
+url = gsub('.*"(https://[^"]+USA.json)".*', "\\1", nyt_json)
+url = unique(url)
+
+nyt_html = GET(url)
+nyt_html = rawToChar(nyt_html$content)
+
+us = fromJSON(nyt_html)
+
+Start_date = as.Date(us$range[1])
+Current_date = as.Date(us$range[2])
+
+cat("The start date is", as.character(Start_date), "and the latest date is", as.character(Current_date), "\n")
+```
+
+As for the summary statistics, there are three in the following tables: the date of confirming the first death**(First Death Date)**, and the date of the largest number of daily death as well as the number**(Date_Death, Maximum Daily Death)**.
+
+```{r, echo = FALSE, warning = FALSE}
+
+Total_summary = data.frame()
+
+for (i in 1:1000)
+{
+  if (us$data[[i]]$region_type == "state")
+  {
+    State_summary = data.frame()
+    
+    State = us$data[[i]]$display_name
+    
+    First_Death_Date = Start_date + min(which(us$data[[i]]$deaths !=0 )) - 1
+    
+    Max_Daily_Death = max(diff(us$data[[i]]$deaths))
+    Date_Death = (Start_date + which(diff(us$data[[i]]$death) == Max_Daily_Death))[1]
+    
+    State_summary = data.frame(State, 
+                               First_Death_Date, 
+                               Max_Daily_Death,Date_Death)
+    Total_summary = rbind(Total_summary, State_summary)
+  }
+  
+}
+htmlTable(Total_summary)
+```
+
+Besides, here is the time series plot for cumulative deaths.
+
+```{r, echo = FALSE}
+ggplot(data = ProjectData, aes(x = as.Date(Date), y = Cum_death, group = State, color = State)) + 
+  geom_point() + 
+  geom_line()+
+  xlab("Date")+
+  ylab("Cumulative Deaths")+
+  theme(legend.key.size = unit(1, "pt"))+
+  theme(legend.position="bottom")
+```
+
+We can find that most of the dates of first death were around late March 2020 and most of the dates of the largest number of daily deaths centered at the end of 2020. Furthermore, In the period from May 2020 to October 2020, the cumulative deaths grows relatively slowly and it's motivated to analyze the cause of this phenomenon.
+
+***
+
+## Explanatory Variables
+
+*Stay-at-Home Order*
+
+Aimed to minimize physical contact between individuals, Stay-at-Home Order is an official regulation that people must stay at home and avoid any unnecessary contact or go-out. Consider the politic fluctuation and work load, we only search the information regarding statewide orders (https://ballotpedia.org/Status_of_lockdown_and_stay-at-home_orders_in_response_to_the_coronavirus_(COVID-19)_pandemic,_2020#Orders_by_trifecta_status). In our data set, the variable representing the status of Stay-at-Home Order, namely `Order_stay`, is a binary variable with "Yes" (the order is effective at a specific date) and "No" (the order has been lifted at that date).
+
+From the following figure, we can see that most of states published the Stay-at-Home order at late March or early April and lifted them at late April to early June.
+
+```{r,fig.height=10,echo=FALSE}
+data = ProjectData
+data$Date = as.Date(data$Date)
+s = as.character(unique(data$State))
+
+plot(data$Date,rep(-100,length(data$Date)),ylim = c(1,55),xlim = c(18300,18510),axes = F,xlab = '',ylab = '')
+for (i in 1:length(s)){
+    d1 = data%>%filter((State==s[i])&(Order_stay=='Yes'))
+    d2 = d1
+    d2$Date = as.Date(d2$Date)
+    lines(as.numeric(d1$Date),rep(i,length(d1$Date)),col = '#111111')
+    if (dim(d1)[1] > 0){
+    points(d1$Date[1],i,col = 'red',pch = 19)
+    points(d1$Date[length(d1$Date)],i,col = 'blue',pch = 19)
+    }
+    text(18320,i,s[i])
+}
+axis(side = 1,at = seq(18322,18322+150,30),labels = c('MAR','APR','MAY','JUN','JUL','AUG'))
+```
+
+```{r, echo = FALSE}
+Order_start_date = c("April 4 2020", "March 28 2020", "March 31 2020", " ", "March 19 2020",
+                     "March 26 2020", "March 23 2020", "March 24 2020", "April 1 2020","April 2 2020", "April 3 2020",
+                     "March 25 2020", "March 25 2020", "March 21 2020", "March 24 2020", " ",
+                     "March 30 2020", "March 26 2020", "March 23 2020", "April 2 2020", "March 30 2020",
+                     "March 24 2020", "March 24 2020", "March 27 2020", "April 3 2020", "April 6 2020",
+                     "March 28 2020", " ", "April 1 2020", "March 27 2020", "March 21 2020",
+                     "March 24 2020", "March 20 2020", "March 30 2020", " ", "March 23 2020",
+                     "April 1 2020", "March 23 2020", "April 1 2020", "March 28 2020", "April 7 2020",
+                     " ", "March 31 2020", "April 2 2020", " ", "March 24 2020",
+                     "March 30 2020", "March 24 2020", "March 24 2020", "March 25 2020", " ")
+
+Order_end_date =  c( "April 30 2020", "April 27 2020", "May 15 2020", " ", "January 25 2021",
+                     "April 26 2020", "May 20 2020",   "May 31 2020", "June 8 2020","May 4 2020", "April 30 2020",
+                     "May 31 2020",   "April 30 2020", "May 29 2020", "May 1 2020", " ",
+                     "May 3 2020",    "June 29 2020",  "May 15 2020", "May 31 2020", "May 15 2020",
+                     "May 18 2020",   "June 1 2020",   "May 17 2020", "April 27 2020", "May 3 2020",
+                     "April 26 2020", " ", "May 15 2020", "June 15 2020", "June 9 2020",
+                     "November 30 2020", "June 27 2020", "May 22 2020", " ", "May 19 2020",
+                     "May 6 2020", "June 19 2020", "June 4 2020", "May 8 2020", "May 4 2020",
+                     " ", "April 30 2020", "April 30 2020", " ", "May 15 2020",
+                     "May 29 2020", "May 31 2020", "May 4 2020", "May 13 2020", " ")
+Order_start_date = as.Date(Order_start_date, "%B %d %y")
+Order_end_date = as.Date(Order_end_date, "%B %d %y")
+
+state = c()
+for (i in 2:52){state = c(state, us$data[[i]]$display_name)}
+
+Order = data.frame(state, Order_start_date, Order_end_date)
+Order[5, "Order_end_date"] = as.Date("2021-01-25")
+```
+
+```{r, echo = FALSE}
+temp = summary(as.numeric(abs(Order$Order_end_date - Order$Order_start_date)))
+Order_sum = data.frame(
+            State_Shortest_Duration = "Mississippi",
+            Duration = 24,
+            State_Longest_Duration = "California",
+            Duration = 312,
+            Mean_Duration = 55,
+            No_Order = 7
+)
+htmlTable(Order_sum)
+```
+In addition, the summary statistics show that 
+
+* The mean of the length the order duration is 55 days.
+
+* The longest duration is 312 days (California) while the shortest duration is 24 days (Mississippi).
+
+* There are 7 states that do not publish statewide order.
+
+*Mask Requirement*
+
+Similar to **Stay-at-Home Order**, *Mask* is also an official regulation that people must wear mask at some specific space. In our data, `Order_mask` is the variable to indicate the status of **Mask Requirement** with "Yes" (the order is effective at a specific date) and "No" (the order has been lifted at that date). The data source is https://healthdata.gov/sites/default/files/state_policy_updates_20210303_0723.csvand here are the summary statistics.
+
+```{r, echo = FALSE, include = FALSE}
+Policy_Data = read_csv("https://healthdata.gov/sites/default/files/state_policy_updates_20210303_0723.csv")
+
+Policy_Data_temp = Policy_Data[which(Policy_Data$policy_type == "Mask Requirement"), ]
+Mask = Policy_Data_temp[which(Policy_Data_temp$policy_level == "state"),]
+
+Start = data.frame(split(Mask, Mask$start_stop)[1])
+Stop = data.frame(split(Mask, Mask$start_stop)[2])
+names(Start)[1] = "stateID"
+names(Stop)[1] = "stateID"
+
+Mask_temp = left_join(Start, Stop, by = "stateID")
+
+#if no stop date, then replace NA with current date
+Mask_state = Mask_temp[,c("stateID", "start.date", "stop.date")]
+Mask_state[is.na(Mask_state)] = Current_date
+
+#transfer abb to full name
+new.state.name = c(state.name, "Washington, D.C.", "Virgin Islands")
+new.state.abb = c(state.abb, "DC", "VI")
+Mask_state$stateID = new.state.name[match(Mask_state$stateID,new.state.abb)]
+```
+
+```{r, echo = FALSE}
+
+temp = summary(as.numeric(abs(Mask_state$stop.date - Mask_state$start.date)))
+
+Mask_sum = data.frame(
+            State_Shortest_Duration = Mask_state$stateID[which(abs(Mask_state$stop.date - Mask_state$start.date) == temp[1])],
+            Duration = as.numeric(temp[1]),
+            State_Longest_Duration = Mask_state$stateID[which(abs(Mask_state$stop.date - Mask_state$start.date) == temp[6])],
+            Duration = as.numeric(temp[6]),
+            Mean_Duration = round(as.numeric(temp[4]))
+)
+htmlTable(Mask_sum)
+```
+
+The summary statistics show that 
+
+* The mean of the length the mask order duration is 152 days.
+
+* The longest duration is 323 days (New York) while the shortest duration is 14 days (Vermont).
+
+*Population Density*
+
+The definition of population density is the number of people living in an area per square kilometers. Generally,
+a higher population density tends to result in a faster spread of epidemics. The variable about population density in our experiment is called `Pop_density` and the data is mainly from the data set `state.area` in R. Here is the table of population density by state.
+
+```{r, echo = FALSE}
+#Land Area
+
+new.state.name = c(state.name, "Washington, D.C.", "Virgin Islands")
+new.state.area = as.numeric(c(state.area, "158", "134.32"))
+Land_Area = data.frame(new.state.name, new.state.area)
+
+Pop_den = data.frame(unique(ProjectData$State), unique(round(ProjectData$Pop_density, 2)))
+names(Pop_den) = c("State", "Population Density")
+htmlTable(Pop_den)
+```
+
+From the table, the region with highest population density is Washington, D.C. while the one with lowest population density is Alaska.
+
+*Unemployment Insurance Number*
+
+It seems that the number of unemployment insurance has nothing to do with the number of deaths. However, if the number of unemployment insurance is too high, then local government has to consider ending the Stay-at-Home order earlier and make a possible increase on the cases number and deaths number. In this report, the variable standing for this factor is `Unemp_num` and the data source is https://oui.doleta.gov/unemploy/claims.asp.
+
+```{r, echo = FALSE}
+##Unemployment
+Unemp_State = read.csv(file = "Unemp_State.csv")
+
+Unemp_State[which(Unemp_State$State == "District of Columbia"), "State"] = "Washington, D.C."
+Unemp_State$Filed.week.ended = as.Date(Unemp_State$Filed.week.ended, format = "%m/%d/%Y")
+Unemp_State$Initial.Claims = gsub(",", "", Unemp_State$Initial.Claims)
+
+```
+
+
+## Model Summary
+Due to the exploratory data analysis, it is known that the WHO COVID-19 data belongs to the longitudinal data. The random effects and fixed effects panels of analysis are efficiently implemented on the longitudinal study. In order to estimate the causal inference from the observational study, two models should be conducted: 1) an *outcome model*, which is intended to explore the effect of the treatment and covariates on the outcome variable. Specially, since we have contained both random and fixed effects in the dataset, a mixed-effects model would be conducted in this study. 2) a *selection model*, which is intended to estimate the effect of selection bias on the treatment variable. The propensity score weighting methodology can have serious consequences in their effectiveness for controlling selection bias, which would be conducted in the following section. Overall, we declare the specific set of steps:
+
+1. Mixed-effects analysis without reducing selection bias
+2. Balance analysis prior to the implementation of propensity score
+3. Propensity Score weighting implementation
+4. Balance analysis after the implementation of propensity score
+5. Causal inference analysis
+
+**Mixed-Effects Model**
+$$
+Y_k = \mu_{......} + \alpha_i + \beta_j + \gamma_p + \theta_q +  S_l + T_m + \epsilon_{k},k = 1,...,n;i = 1,...,a_1;j = 1,...,a_2;p = 1,...,a_3;q = 1,...,a_4;l = 1,...,a_5;m = 1,...,a_6
+$$
+
+**Notations**
+
+* $\alpha_i$ represents the fixed effect of `Order_stay` with "Yes" $(i = 1)$ and "No" $(i = 2)$; 
+
+* $\beta_j$ stands for the fixed effect of `Order_mask` with "Yes" $(j = 1)$, and "No" $(j = 2)$;
+
+* $\gamma_p$ represents the fixed effect of `Case`, which is an indication of numbers of infected people;
+
+* $\theta_q$ stands for the fixed effect of `Pop_density`, which is an indication of population density for different states;
+
+* $S_l$ symbolizes the random effect of `State`; 
+
+* $T_m$ is an indicator of the random of effect of `Date`;
+
+* $Y_{k}$ means the $k$th observation of the response variable `Death` in a specific group of the $X$ variables.
+
+* $\epsilon_{k}$ capture any unexplained effects on `Death`.
+
+* The mean effect $\mu_{\cdot\cdot\cdot\cdot\cdot\cdot}$ is the mean death number.
+
+**Assumptions**
+
+* The fixed effects and random effects have a additive and linear influence on the mean of the response variable.
+
+* $\sum^{2}_{i=1}\alpha_i = 0$, $\sum^{2}_{j=1}\beta_j = 0$, $\sum^{}_{p}\gamma_p = 0$, and $\sum^{}_{q}\theta_q = 0$ respectively;
+
+* $S_l$ are $i.i.d.N(0, \sigma^2_{S})$ and $T_m$ are $i.i.d.N(0, \sigma^2_{T})$ respectively;
+
+* $\{\epsilon_{k}\}$ are $i.i.d.N(0, \sigma^2)$;
+
+* $\{S_l\}, \{T_m\}, \{\epsilon_{k}\}$ are pairwise independent.
+
+***
+
+## Model Fitting
+
+**Mixed-effects model fitting**
+ Fit the mixed effect model by using `lmer()` in package `lme4`. 
+```{r,include=FALSE}
+
+```
+
+```{r,include=FALSE}
+data.frame <- read_csv('Project_Data.csv')
+str(data.frame)
+# we need to factorize the category variables
+data.frame$Order_stay <- as.factor(data.frame$Order_stay)
+data.frame$Order_mask <- as.factor(data.frame$Order_mask)
+```
+
+```{r,include=FALSE}
+data.frame <- data.frame[which(data.frame$Date<=as.Date("2020-08-01")), ]
+```
+
+
+```{r,include=FALSE}
+# construct the original mixed effect model before introducing weight
+model1 <- lmer(Cum_death ~ Order_stay + Order_mask + Cum_case + Pop_density + (1|State) + (1|Date) , data =data.frame)
+summary(model1)
+```
+|    | Estimate | Std. Error | df | t value | Pr(>$|t|$) |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| Intercept | 1.851e+02 | 2.587e+02 | 5.032e+01 | 0.715 |0.478 |
+| Order_stayYes | -2.237e+02 | 4.892e+01 | 1.887e+03 | -4.572 | 5.15e-06 *** |
+| Order_maskYes | 4.940e+02 | 6.885e+01 | 7.514e+03 | 7.174 | 7.96e-13 *** |
+| Cum_case | 3.878e-02 | 4.209e-04 | 6.935e+03 | 92.146 | < 2e-16 *** |
+| Pop_density | 3.524e-01 | 3.686e-01 | 4.875e+01 | 0.956 | 0.344 |
+
+In the initial mixed-effects model analysis, we have tested the association between the outcome: death  and the treatment: lockdown order. The result showed that lockdown is statistically significant with p-value < 0.05, which indicates the treatment variable affect the outcome. Other variables: mask requirement and cases are also statistically significant, which indicates those covariates also affect the outcome. The covariate `Pop_density` is non-significant, meaning death numebrs are not associated with the population density. 
+
+
+## Propensity Score Weighting
+
+Propensity score weighting is a statistical technique that attempts to estimate the effect of a treatment by accounting the covariates that predict receiving the treatment(Rosebaum and Rubin 1983). The difference in the outcome between treated and untreated groups may a variable that predicts the treatment rather than the treatment itself. In randomized experiments, randomization implies that treatment-groups will be balanced on average. However in the observational study, the assumption is not valid. This requires the propensity score weighting techniques to reduce the bias due to the non-random assignment of treatment. The method of instrumental variables(IV) is used to estimate the causal relationship when the treatment is not randomly assigned. IVs are directly related to the treatment and see if they are important for group selection. If so, we need to reduce the bias due to both IVs and confounding variables. In this study, we add weekly unemployment number `Unemp_num` as an instrumental variables to the treatment.
+
+**Balance Assesment**
+
+Firstly, we use a simple t-test to conduct whether there is an association between unemployment number and the lockdown order.
+$H_0:$ Lockdown order has no effect on the unemployment number
+
+$H_1:$ Lockdown order has an effect on the unemployment number
+```{r,include=FALSE}
+# test the unemployment rate on treatment lockdown order
+test.unemp <- lm(Unemp_num ~ Order_stay, data = data.frame)
+summary(test.unemp)
+```
+|    | Estimate | Std. Error | t value | Pr(>$|t|$) |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| Intercept |  21637.5 |  314.3 | 68.85 | <2e-16 *** |
+| Order_stayYes | 34859.6 | 563.6| 61.85 | <2e-16 *** |
+
+The results show that the instrumental variable `Umemp_num` is statistically important to the outcome, which indicates the imbalance in the selection bias. Under this scenario, we should conduct the propensity score method to try to reduce it. In this study, we choose logistic regression to estimate propensity score.
+
+**Logistic Regression**
+
+Logistic regression is used to determine the probability of membership in the treatment or control group, given the specific set of selection variables included. In the logistic regression model, we have a binary outcome for lockdown order(yes or no). $Z_i \in \left\{0,1\right\}$. We assume the IV `Unemp_num` and confounding variables (`Cum_case`, , `Order_mask` and `State`) have an impact on the treatment group assignment.
+$$
+logit(\pi_i) = X_i^T\beta
+$$
+
+
+* $\pi_i = p(Z_i =1|X_i)$ 
+
+* $logit(\pi_i)=log(\frac{\pi_i}{1-\pi_i})$
+
+The coefficients are estimated based on the maximum likelihood of the dataset. We obtain the estimated propensity score weight by saving the predicted values from the logistic regression.
+$$
+\hat{e}(X_i) = p(Z_i = 1|X_i)
+$$
+
+```{r,include=FALSE}
+
+#Estimate propensity score using selected covariates
+ps <- glm(Order_stay ~ Cum_case + Unemp_num + Order_mask, data = data.frame, family = binomial())
+summary(ps)
+```
+|    | Estimate | Std. Error | z value | Pr(>$|z|$) |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| Intercept | -2.773e+00      | 5.688e-02 | -48.751 | < 2e-16 *** |
+| Order_maskYes |  -3.215e-01  | 1.147e-01 | -2.802 | 0.00507 ** |
+| Cum_case | 5.309e-06 | 4.665e-07 |  11.380 | < 2e-16 *** |
+| Unemp_num | 5.137e-05 | 1.201e-06|  42.766  | < 2e-16 *** |
+
+It turns out that all covariates are associated with the lockdown order at 95% significant level. Using this model, we can calculate the propensity score for each case, which is the predicted probability of being treated given the estimates from the logit model. Then the weight is easily calculated:
+$$
+w_i = \left\{
+\begin{array}{cc}
+    \frac{1}{\hat{e}(X_i)}, \quad  & treatment \ group \\
+    \frac{1}{1-\hat{e}(X_i)}, \quad  & control \ group 
+\end{array}
+\right.
+$$
+
+```{r,include=FALSE}
+data.frame$psvalue <- predict(ps, type = "response")
+data.frame$weight <- ifelse(data.frame$Order_stay == "Yes", 1/data.frame$psvalue, 1/(1-data.frame$psvalue))
+
+```
+
+**Imbalance Check**
+
+We conduct the T-test same as in the section *balance analysis for IV* before to check the balance.
+```{r,include=FALSE}
+#Check the imbalance
+test_unemp_balance <- lm(Unemp_num ~ Order_stay, data = data.frame, weights = (weight))
+summary(test_unemp_balance)
+```
+|    | Estimate | Std. Error | t value | Pr(>$|t|$) |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| Intercept | 39443.1 | 475.3 | 82.987 | <2e-16 *** |
+| Order_stayYes | -1325.7 | 712.5| -1.861 | 0.0628 |
+
+By comparing the results, the t-value has decreased which is the indication of improvement. Moreover, the coefficient for the treatment is no longer statistically significant with p-value > 0.05. We failed to reject the null hypothesis and conclude that lockdown order has no effect on the UIs.
+
+**Weighted Regression**
+
+We implement estimated weights by propensity score into the initial outcome model. 
+```{r,echo=F,message=F,results='asis'}
+model_balance <- lmer(Cum_death ~ Order_stay + Order_mask + Cum_case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
+model_reduced <- lmer(Cum_death ~ Order_mask + Cum_case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
+anova.fit <- anova(model_reduced, model_balance)
+kable(anova.fit)
+```
+Without selection bias, we conduct the ANOVA model to do the causal inference analysis between the outcome variable: death and the treatment variable: lockdown order. Apparently, the treatment variable is significant which indicates there is a significant effect after balancing the groups using propensity score estimated using logistic regression. We condude that there is an causal inference between death number and lockdown order. The lockdown order is efficient as a tool to impede death increasing during the widely spread of the COVID-19 pandemic.
+
+## Model Diagnostics
+
+```{r,echo=FALSE}
+plot(model1)
+```
+
+From the residuals v.s. fitted plot we can see that the residuals have a strange distribution. A heavy density of points are scattered around 0 but there are some outliers. This suggests the homoscedasticity assumption may not hold.
+
+```{r,echo=FALSE}
+qqnorm(summary(model1)$residuals)
+```
+
+## Discussion
+
+According to the propensity score weighting process to the COVID-19 data above, we have concluded that the lockdown order, with negative coefficients would have a significant impact on reducing the death numbers caused by COVID-19. Therefore, lockdown order is an efficient and scientific tool to save peoples' lives. What's more, the effects of mask requirement, case numbers and population density are also been tested. Results showed that mask requirement and case numbers have significant effect on death numbers. We encourage people to wear a mask in the public area to reduce the death rate. The population density has no significant effect. It's more or less counter-intuitive because the higher density means more flow exchange. Death numbers should increase but it would induce another question, that is the medical levels among states. Unfortunately, we failed to include such index as an variable because it's hard to find a longitudinal data of it. That would be the caveat of this project. Another caveat is that although the selection bias has been removed, assumptions of mixed-effects model may not hold so the conclusion may not be valid enough. Future study includes introducing more covariates such as medical levels and weather conditions and do data transformation to obey the model assumptions properly.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Reference
+[1] https://en.wikipedia.org/wiki/COVID-19_pandemic
+
+[2] Lakshmi Priyadarsini, S., & Suresh, M. (2020). Factors influencing the epidemiological characteristics of pandemic COVID 19: A TISM approach. International Journal of Healthcare Management, 13(2), 89-98.
+
+[3] Rosenbaum, P. R., & Rubin, D. B. (1983). The central role of the propensity score in observational studies for causal effects. Biometrika, 70(1), 41-55.
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+
