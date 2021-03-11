@@ -390,16 +390,16 @@ data.frame <- data.frame[which(data.frame$Date<=as.Date("2020-08-01")), ]
 
 ```{r,include=FALSE}
 # construct the original mixed effect model before introducing weight
-model1 <- lmer(Cum_death ~ Order_stay + Order_mask + Cum_case + Pop_density + (1|State) + (1|Date) , data =data.frame)
+model1 <- lmer(Death ~ Order_stay + Order_mask + Case + Pop_density + (1|State) + (1|Date) , data =data.frame)
 summary(model1)
 ```
 |    | Estimate | Std. Error | df | t value | Pr(>$|t|$) |
 |:-:|:-:|:-:|:-:|:-:|:-:|
-| Intercept | 1.851e+02 | 2.587e+02 | 5.032e+01 | 0.715 |0.478 |
-| Order_stayYes | -2.237e+02 | 4.892e+01 | 1.887e+03 | -4.572 | 5.15e-06 *** |
-| Order_maskYes | 4.940e+02 | 6.885e+01 | 7.514e+03 | 7.174 | 7.96e-13 *** |
-| Cum_case | 3.878e-02 | 4.209e-04 | 6.935e+03 | 92.146 | < 2e-16 *** |
-| Pop_density | 3.524e-01 | 3.686e-01 | 4.875e+01 | 0.956 | 0.344 |
+| Intercept | 1.630e+00 | 3.983e+00 | 5.526e+01 | 0.409 | 0.684|
+| Order_stayYes | 7.741e+00 | 1.603e+00 | 1.298e+03 | 4.828 | 1.54e-06 *** |
+| Order_maskYes | -1.538e+01  | 2.163e+00 | 6.104e+03 |-7.110| 1.29e-12 *** |
+| Case | 2.647e-02| 5.045e-04 | 7.771e+03 | 52.462 | < 2e-16 *** |
+| Pop_density | 6.284e-03| 5.540e-03 | 4.879e+01 | 1.134 | 0.262 |
 
 In the initial mixed-effects model analysis, we have tested the association between the outcome: death  and the treatment: lockdown order. The result showed that lockdown is statistically significant with p-value < 0.05, which indicates the treatment variable affect the outcome. Other variables: mask requirement and cases are also statistically significant, which indicates those covariates also affect the outcome. The covariate `Pop_density` is non-significant, meaning death numebrs are not associated with the population density. 
 
@@ -446,15 +446,15 @@ $$
 ```{r,include=FALSE}
 
 #Estimate propensity score using selected covariates
-ps <- glm(Order_stay ~ Cum_case + Unemp_num + Order_mask, data = data.frame, family = binomial())
+ps <- glm(Order_stay ~ Case + Unemp_num + Order_mask, data = data.frame, family = binomial())
 summary(ps)
 ```
 |    | Estimate | Std. Error | z value | Pr(>$|z|$) |
 |:-:|:-:|:-:|:-:|:-:|:-:|
-| Intercept | -2.773e+00      | 5.688e-02 | -48.751 | < 2e-16 *** |
-| Order_maskYes |  -3.215e-01  | 1.147e-01 | -2.802 | 0.00507 ** |
-| Cum_case | 5.309e-06 | 4.665e-07 |  11.380 | < 2e-16 *** |
-| Unemp_num | 5.137e-05 | 1.201e-06|  42.766  | < 2e-16 *** |
+| Intercept | -2.685e+00 | 5.502e-02 | -48.798 | < 2e-16 *** |
+| Order_maskYes |  4.010e-02 | 9.975e-02 | 0.402 | 0.688 |
+| Case | 1.897e-04| 2.074e-05 |  9.148 | < 2e-16 *** |
+| Unemp_num | 4.973e-05| 1.184e-06|  42.014  | < 2e-16 *** |
 
 It turns out that all covariates are associated with the lockdown order at 95% significant level. Using this model, we can calculate the propensity score for each case, which is the predicted probability of being treated given the estimates from the logit model. Then the weight is easily calculated:
 $$
@@ -491,23 +491,24 @@ By comparing the results, the t-value has decreased which is the indication of i
 
 We implement estimated weights by propensity score into the initial outcome model. 
 ```{r,echo=F,message=F,results='asis'}
-model_balance <- lmer(Cum_death ~ Order_stay + Order_mask + Cum_case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
-model_reduced <- lmer(Cum_death ~ Order_mask + Cum_case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
+model_balance <- lmer(Death ~ Order_stay + Order_mask + Case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
+model_reduced <- lmer(Death ~ Order_mask + Case + Pop_density + (1|State) +(1|Date), data =data.frame, weights = (weight))
 anova.fit <- anova(model_reduced, model_balance)
 kable(anova.fit)
 ```
-Without selection bias, we conduct the ANOVA model to do the causal inference analysis between the outcome variable: death and the treatment variable: lockdown order. Apparently, the treatment variable is significant which indicates there is a significant effect after balancing the groups using propensity score estimated using logistic regression. We condude that there is an causal inference between death number and lockdown order. The lockdown order is efficient as a tool to impede death increasing during the widely spread of the COVID-19 pandemic.
+Without selection bias, we conduct the ANOVA model to do the causal inference analysis between the outcome variable: death and the treatment variable: lockdown order. Apparently, the treatment variable is significant which indicates there is a significant effect after balancing the groups using propensity score estimated using logistic regression. We conclude that there is an causal inference between death number and lockdown order. The lockdown order is efficient as a tool to impede death increasing during the widely spread of the COVID-19 pandemic.
 
 ## Model Diagnostics
 
 ```{r,echo=FALSE}
-plot(model1)
+plot(model_balance)
 ```
 
 From the residuals v.s. fitted plot we can see that the residuals have a strange distribution. A heavy density of points are scattered around 0 but there are some outliers. This suggests the homoscedasticity assumption may not hold.
 
 ```{r,echo=FALSE}
-qqnorm(summary(model1)$residuals)
+qqnorm(summary(model_balance)$residuals)
+qqline(summary(model_balance)$residuals)
 ```
 
 ## Discussion
